@@ -1,15 +1,15 @@
 * CMOS Inverter SPICE Simulation
 * File: inverter_cmos.cir
-.INCLUDE "AMS035.txt"
-*.INCLUDE "45nm_bulk.txt"
+.include "../models/AMS035.txt"
+*.include "../models/45nm_bulk.txt"
 
 * CMOS Inverter with Parameters
 
 * Paramètres
 .param VDD=3.3
-.param W_N=5u
+.param W_N=3.14u
 .param L_N=0.35u
-.param W_P=5u
+.param W_P=3u
 .param L_P=0.35u
 .temp 25
 

@@ -1,34 +1,42 @@
-import random
+from code.environment import CmosInverterEnvironmentDiscrete
+from code.utils import TensorboardCallback
+import gymnasium as gym
 from stable_baselines3 import A2C
-from stable_baselines3.common.env_util import SubprocVecEnv
-from stable_baselines3.common.callbacks import BaseCallback
-from stable_baselines3.common.vec_env import VecNormalize
-from math import ceil, log10
+from stable_baselines3.common.vec_env import DummyVecEnv
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+import subprocess
 
-from utils import TensorboardCallback
-from environment import CmosInverterEnvironment
-from environment import CmosInverterEnvironmentDiscrete
+def train_model():
+    """
+    Train the A2C model using the CMOS inverter environment.
+    """
+    env = CmosInverterEnvironmentDiscrete(
+        netlist='netlists/cmos_inverter.cir',
+        widths=True,
+        lengths=False,
+    )
 
-def make_env(env_id, rank, seed=0):
-    def _init():
-        env = CmosInverterEnvironmentDiscrete()
-        env.reset(seed=seed + rank) 
-        return env
-    return _init
+    # Wrap the environment in a DummyVecEnv for compatibility with Stable Baselines3
+    env = DummyVecEnv([lambda: env])
 
+    # Train the model
+    model = A2C('MlpPolicy', env, verbose=1, tensorboard_log="tensorboard_logs/")
+    model.learn(total_timesteps=20_000, callback=TensorboardCallback()) #SB3 is printing table every 500 steps
+
+    # Save the trained model
+    model.save("a2c_cmos_inverter")
+    print("Model saved...")
+
+def run_simulation():
+    """
+    Run a simulation using the trained model and execute an NGSpice simulation.
+    """
+    from code.utils import run_exe
+
+    run_exe("./bin/ngspice", "netlists/cmos_inverter.cir")
 
 if __name__ == "__main__":
-    num_envs = 4 
-
-    envs = SubprocVecEnv([make_env("CmosInverterEnvironmentDiscrete", i) for i in range(num_envs)])
-
-    envs = VecNormalize(envs, norm_obs=True, norm_reward=True, clip_obs=10.0)
-
-    model = A2C("MlpPolicy", envs, verbose=1, tensorboard_log="./a2c_tensorboard/")
-
-    model.learn(total_timesteps=100, callback=TensorboardCallback())
-
-    model.save("a2c_cmos_inverter")
-
-    envs.close()    
-        
+    #train_model()
+    run_simulation()

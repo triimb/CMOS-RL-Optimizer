@@ -6,8 +6,7 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 
-
-from utils import (
+from code.utils import (
     read_wrdata_file,
     run_exe,
     NGSpiceEnvironment,
@@ -17,10 +16,7 @@ from utils import (
 
 class CmosInverterEnvironment(NGSpiceEnvironment):
     r"""
-    Custom gym environment for optimizing a CMos inverter.
-
-    Private attributes starts with _, those attributes must be kept
-    as is after their definition in the constructor __init__.
+    Custom gym environment for optimizing a CMOS inverter.
 
     Attributes
     ----------
@@ -42,39 +38,37 @@ class CmosInverterEnvironment(NGSpiceEnvironment):
             lengths: bool = False,
             borders: Optional[dict[str, tuple[float, float]]] = None,
     ):
-        inverter_path = Path(netlist) # TODO : Path to netlist
+        """
+        Initialize the CMOS inverter environment.
+
+        Parameters
+        ----------
+        netlist : str
+            Path to the netlist file.
+        widths : bool, optional
+            Whether to optimize transistor widths (default is True).
+        lengths : bool, optional
+            Whether to optimize transistor lengths (default is False).
+        borders : dict, optional
+            Parameter value boundaries, e.g., {'W_P': (1e-6, 10e-6)}.
+        """
+
+        inverter_path = Path(netlist)
         if not inverter_path.exists():
             raise NotImplementedError("Path to netlist is missing")
         super().__init__(inverter_path)
         
-
-
-        # TODO : Setup all useful class attributes you need in your functions
+        # Class attributes for environment configuration
         self.widths = widths
         self.lengths = lengths
         self.borders = borders or {}
         self.data = None
         
-        # TODO : Filter parameters
-        #        By default, all .param in the netlists are considered
-        #        as parameters, however all parameters must be defined
-        #        in the actions, which is not necessarily relevant
-        #        (for example a vdd parameter with the voltage power
-        #        value).
-        #        ⠀
-        #        These .param can be removed from the netlist, or kept
-        #        (because for example you use it in the code to get
-        #        some meta values that must not be optimized).
-        #        ⠀
-        #        If you keep it, you must separate the parameters in
-        #        two dictionaries : self._parameters and
-        #        self._hidden_parameters. The second one must exist in
-        #        all cases, if you don't have hidden parameters set it
-        #        to empty : self._hidden_parameters = {}
-        
+        # Filter parameters
+        # - Hidden parameters: not exposed for optimization (e.g., supply voltage)
+        # - Actionable parameters: e.g., widths starting with "W" or lengths "L"
         self._hidden_parameters = {
-            key: value for key, value in self._parameters.items()
-            if not key.startswith("W")
+            key: value for key, value in self._parameters.items() if not key.startswith("W")
         }
         
         if widths:
@@ -83,23 +77,14 @@ class CmosInverterEnvironment(NGSpiceEnvironment):
             self._parameters.update({key: value for key, value in self._parameters.items() if key.startswith("L")})
 
         self._parameters.update(self.borders)
-        
 
-
-        # TODO : Define the action space : self._action_space
-        #        Use gym spaces for that, remember that the
-        #        actions are dictionaries associating
-        #        parameters to their new values (don't forget
-        #        the limits)
+        # Define action space
         self.action_space = gym.spaces.Dict({
-            'W_P': gym.spaces.Box(low=1e-6, high=10e-6, shape=(), dtype=np.float32),  # width range for PMOS
-            'W_N': gym.spaces.Box(low=1e-6, high=10e-6, shape=(), dtype=np.float32),  # width range for NMOS
+            'W_P': gym.spaces.Box(low=1e-6, high=10e-6, shape=(), dtype=np.float32),  # PMOS width range
+            'W_N': gym.spaces.Box(low=1e-6, high=10e-6, shape=(), dtype=np.float32),  # NMOS width range
         })
         
-        # TODO : define the observation space : self.observation_space
-        #        As for action space, use gym spaces to define it, the
-        #        observations are a dictionary associating each metric
-        #        to its value
+        # Define observation space
         self.observation_space = gym.spaces.Dict({
             "power": gym.spaces.Box(low=0.0, high=np.inf, shape=(), dtype=np.float32),
             "delay": gym.spaces.Box(low=0.0, high=np.inf, shape=(), dtype=np.float32),
@@ -113,63 +98,36 @@ class CmosInverterEnvironment(NGSpiceEnvironment):
 
         Returns
         -------
-        None
+        dict
+            Observations, e.g., {"power": 0.5, "delay": 1.2, "surface": 2.3}.
         """
-        # Generate netlist
-
-        # Run simulation and extract data
-        # TODO : Write a code to call the simulator and to extract
-        #        data from output files.
-        #        Some class attributes can be helpful :
-        #          - self._netlist : contains path to the netlist to
-        #            simulate, netlist has been parsed with the
-        #            parameters value given by action dictionary
-        #          - self._generated_files : list of files generated
-        #            by the simulation (wrdata instructions) (only
-        #            the name of the file, not their path)
-        #        Also you can use the following class method from
-        #        parent :
-        #          - get_output_path
-        #        You have the following utils functions to help you :
-        #          - utils.run_exe
-        #          - utils.read_wrdata_file
-        #        ⠀
-        #        Observations must be a dictionary {
-        #           "metric_1": 0.1,
-        #           "metric_2": 0.2,
-        #        }, I recommend you to write other methods _compute_*
-        #        and call it to construct this dictionary : {
-        #           "metric_1": compute_metric_1(data),
-        #           "metric_2": compute_metric_2(data),
-        #           ...
-        #        }
-            
         
-        # Génération du fichier netlist
+        # Generate netlist with updated parameters
         with open(self._netlist, "w") as fd:
             fd.write(self._netlist_content.format(**self._parameters, **self._hidden_parameters))
         
-        run_exe("ngspice", "--batch", self._netlist)
+        # Run the simulator
+        run_exe("./bin/ngspice", "--batch", self._netlist)
 
-        self.data = {filename: read_wrdata_file(self.get_output_path(filename)) for filename in self._generated_files}
-        #print(f"Il y a {len(data)} fichier générés")
+        # Read first output file
+        self.data = read_wrdata_file(self.get_output_path(self._generated_files[0]))
         
-        # Plot (optionnal)
-        for df in self.data.values():
-            #print(df)
-            #self.plot_voltages(df)    
+        if self.data is not None:
             return {
-                "power": self._compute_power(df), 
-                "delay": self._compute_delay(df),
-                "surface": self._compute_surface(df)
+                "power": self._compute_power(self.data), 
+                "delay": self._compute_delay(self.data),
+                "surface": self._compute_surface(self.data)
             }      
-            
-
-        raise NotImplementedError("NGSpiceEnvironment._get_ops method not implemented")
+        else:
+            raise NotImplementedError("DataFrame Empy")
 
 
     def _get_info(self):
-        return {}
+        return {
+            "W": {key: self._parameters[key] for key in self._parameters if key.startswith("W")},
+            "L": {key: self._parameters[key] for key in self._parameters if key.startswith("L")},
+            "Surface": self._compute_surface(self.data)
+        }
 
     def reset(self, seed: Optional[int] = None, options: Optional[dict] = None):
         r"""
@@ -197,7 +155,6 @@ class CmosInverterEnvironment(NGSpiceEnvironment):
 
         # Sample new parameter values from the action space
         params = self.action_space.sample()
-
         self._parameters.update(params)
 
         obs = self._get_obs()
@@ -208,6 +165,11 @@ class CmosInverterEnvironment(NGSpiceEnvironment):
     def plot_voltages(self, df : pd.DataFrame):
         """
         Plots v(in) and v(out) vs time.
+
+        Parameters
+        ----------
+        df : pd.DataFrame
+            Dataframe containing simulation results with 'time', 'v(in)', and 'v(out)'.
         """
         
         if df is not None:
@@ -226,6 +188,16 @@ class CmosInverterEnvironment(NGSpiceEnvironment):
         plt.show()
         
     def _compute_surface(self, df: dict) -> float:
+        r"""
+        Compute the transistor surface area.
+        
+        Surface = W_N * L_N + W_P * L_P
+
+        Returns
+        -------
+        float
+            Total surface area, e.g., 2e-12.
+        """
         if self.lengths:
             return(
                 self._parameters["W_N"] * self._parameters["L_N"] +
@@ -239,75 +211,97 @@ class CmosInverterEnvironment(NGSpiceEnvironment):
             
     
     def _compute_power(self, df: dict) -> float:
+        """
+        Compute average power consumption.
+        
+        Power = v(out) * i(vdd)
+
+        Returns
+        -------
+        float
+            Power consumption, e.g., 5.2e-6 W
+        """
         if df is not None:
             vout = df['v(out)'].values
             iout = df['i(vdd)'].values
-
-            return np.mean(vout) * np.mean(iout)
+            return abs(np.mean(vout) * np.mean(iout))
         else:
-            raise NotImplementedError("DataFrame Empy")
+            raise NotImplementedError("DataFrame Empty")
 
     def _compute_delay(self, df: dict) -> float:
+        """
+        Compute propagation delay.
+
+        t_p = (tPLH + tPHL) / 2
+
+        Returns
+        -------
+        float
+            Average propagation delay, e.g., 1.5e-9.
+        """
         if df is not None:
             VDD = 3.3
                 
-            low_threshold = 0.1 * VDD  # 10% of Vdd
-            high_threshold = 0.9 * VDD  # 90% of Vdd
+            low_threshold = 0.1 * VDD  # 10% of VDD
+            high_threshold = 0.9 * VDD  # 90% of VDD
             
-            # Step 1: Calculate tPLH (Low-to-High Propagation Delay)
             # Find the time when the output voltage crosses 10% (low) and 90% (high)
             low_to_high_start = df[df['v(out)'] >= low_threshold].iloc[0]
             low_to_high_end = df[df['v(out)'] >= high_threshold].iloc[0]
-            
             tPLH = low_to_high_end['time'] - low_to_high_start['time']
             
-            # Step 2: Calculate tPHL (High-to-Low Propagation Delay)
             # Find the time when the output voltage crosses 90% (high) and 10% (low)
             high_to_low_start = df[df['v(out)'] >= high_threshold].iloc[0]
             high_to_low_end = df[df['v(out)'] <= low_threshold].iloc[0]
-            
             tPHL = high_to_low_end['time'] - high_to_low_start['time']
             
             return (tPLH + tPHL) / 2
 
         else:
-            raise NotImplementedError("DataFrame Empy")
+            raise NotImplementedError("DataFrame Empty")
         
     
     def _compute_reward(self, obs: dict) -> float:
         r"""
-        Compute the reward.
+        Compute the reward based on the observations.
+
+        Parameters
+        ----------
+        obs : dict
+            A dictionary containing the observation values. Expected keys are:
+            - "power": float, represents the power value.
+            - "delay": float, represents the delay value.
+            - "surface": float, represents the surface value.
 
         Returns
         -------
-        Float
-            The reward, as a float, or anything you want (but be careful).
+        float
+            The computed reward, based on normalized values of power, delay, and surface.
+            The reward function is designed to penalize high power and surface values,
+            and reward lower delay values.
         """
-        # TODO : Write this method and return the reward, you are
-        #        free to replace *args by any number of arguments you
-        #        need
+
         # Raw observations
-        power = obs.get("power", 0.0)
+        power = max(obs.get("power", 0.0), 1e-10)
         delay = obs.get("delay", 0.0)
         surface = obs.get("surface", 0.0)
-        
-        #print(f"Power : {power}")
-        #print(f"Delay : {delay}")
-        #print(f"Surface : {surface}")
 
-        power_min, power_max = 0.0, 10e-6
-        delay_min, delay_max = 0.0, 10e-10
-        surface_min, surface_max = 0.0, 10e-11
+        power = max(power, 1e-10)  # Avoid negative or zero power
 
-        # Normalized values
-        power_norm = (power - power_min) / (power_max - power_min)
+        # Normalization bounds (adjust if necessary)
+        power_min, power_max = 1e-10, 1e-5  
+        delay_min, delay_max = 1e-12, 1e-9  
+        surface_min, surface_max = 1e-12, 1e-9
+
+        # Normalize the observation values
+        power_norm = np.log10(power) / np.log10(power_max)  
         delay_norm = (delay - delay_min) / (delay_max - delay_min)
-        surface_norm = (surface - surface_min) / (surface_max - surface_min)
+        surface_norm = np.log10(surface) / np.log10(surface_max)
 
-        # Hyperparameters
-        alpha = 1.0
-        beta = 1.0
-        gamma = 0.8
+        # Hyperparameters to weight different components of the reward
+        alpha = 0.9
+        beta = 2.5
+        gamma = 1.3
 
         reward = -(alpha * power_norm + gamma * surface_norm) + beta / (delay_norm + 1e-6)
         
@@ -363,38 +357,33 @@ class CmosInverterEnvironment(NGSpiceEnvironment):
 
 
 class CmosInverterEnvironmentDiscrete(gym.Env):
+    """
+    A discrete action-space wrapper for the CmosInverter environment, designed
+    to work with stable baselines 3 (SB3) by converting continuous action and observation spaces
+    to discrete representations.
+    """
 
-    def __init__(self):
+    def __init__(
+            self,
+            netlist,
+            widths: bool = True,
+            lengths: bool = False,
+            borders: Optional[dict[str, tuple[float, float]]] = None,
+        ):
         super().__init__()
 
         # Back-end environment
-        self._env = CmosInverterEnvironment('code/cmos_inverter.cir', widths=True, lengths=False, borders=None)
+        self._env = CmosInverterEnvironment(netlist, widths, lengths, borders)
         
+        # Observation space from the back-end environment
         self._observations_order = list(self._env.observation_space.keys())
 
-        # TODO : Continuous environment are not the best to use in
-        #        reinforcement learning for this task, we go to a
-        #        discrete actions environment.
-        #        The discrete actions are a step added or subtracted
-        #        in the parameter values :
-        #            param_1_action == 1 => param_1_value += step
-        #        ⠀
-        #        Stable baselines 3 does not want dictionary actions,
-        #        the workaround is to define a front-end environment
-        #        for SB3 that uses the previous environment in
-        #        back-end.
-        #        ⠀
-        #        And the actions are now arrays :
-        #            [param_1_action, param_2_action, ...]
-        #        ⠀
-        #        Write the new action space.
-        self.step_size = 1e-6  # Define the step size
+        # Discrete action space: each parameter has 3 possible actions (-1, 0, 1)
+        self.step_size = 1e-6  # Step size for parameter changes
         self.action_space = gym.spaces.MultiDiscrete([3] * len(self._env.action_space.keys()))  
-        # Each parameter has 3 options: -1 (decrease), 0 (no change), 1 (increase)
+        # Each parameter has 3 possible actions: -1 (decrease), 0 (no change), 1 (increase)
 
-        # TODO : The issue with SB3 and Dict spaces is the same for
-        #        observation space. Adapt it in the same way as action
-        #        space.self._observations_order = list(self._env.observation_space.keys())
+        # Observation space (converted from back-end environment)
         obs_low = np.array([self._env.observation_space[key].low for key in self._observations_order])
         obs_high = np.array([self._env.observation_space[key].high for key in self._observations_order])
         self.observation_space = gym.spaces.Box(low=obs_low, high=obs_high, dtype=np.float32)
@@ -412,12 +401,24 @@ class CmosInverterEnvironmentDiscrete(gym.Env):
         )
 
     def step(self, action):
-        # TODO : Write a code that converts the actions from discrete
-        #        to direct values, call the step method of the
-        #        back-end environment self._env, then convert the
-        #        observation to the SB3 valid format before return.
-        #        ⠀
-        #        Don't forget anything :)
+        """
+        Takes a step in the environment with the provided discrete action.
+
+        Parameters
+        ----------
+        action : array-like
+            The discrete action values to apply to the environment. An array of integers.
+        
+        Returns
+        -------
+        tuple
+            A tuple containing:
+            - An array of the next observations, in SB3-compatible format.
+            - A float representing the reward.
+            - A boolean indicating whether the environment has terminated.
+            - A boolean indicating whether the environment has truncated.
+            - A dictionary containing additional information.
+        """
         action_dict = {}
         for idx, (param_name, param_space) in enumerate(self._env.action_space.items()):
             discrete_action = action[idx]
@@ -430,6 +431,7 @@ class CmosInverterEnvironmentDiscrete(gym.Env):
             else:
                 raise ValueError(f"Unexpected discrete action value: {discrete_action}")
 
+            # Get the current value of the parameter, apply the delta, and ensure it stays within bounds
             current_value = self._parameters[param_name]
             new_value = np.clip(current_value + delta, param_space.low, param_space.high)
             action_dict[param_name] = new_value
@@ -437,6 +439,7 @@ class CmosInverterEnvironmentDiscrete(gym.Env):
         # Step the backend environment
         obs, reward, terminated, truncated, info = self._env.step(action_dict)
 
+        # Convert observations to SB3-compatible format
         obs_array = np.array([obs[key] for key in self._observations_order])
 
         return obs_array, reward, terminated, truncated, {"obs": obs, **info}

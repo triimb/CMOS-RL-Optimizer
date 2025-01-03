@@ -94,11 +94,17 @@ def run_exe(exe: str | Path, *options: Any) -> None:
 
     logger.debug("Running command '%s'", ' '.join(args))
 
-    subprocess.run(
+    result = subprocess.run(
         args,
         check=False,
-        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE,
     )
+
+    if result.returncode != 0:
+        print("stdout:", result.stdout.decode())
+        print("stderr:", result.stderr.decode())
+
+        raise RuntimeError(f"Command failed with return code {result.returncode}")
 
 
 def read_wrdata_file(
@@ -131,18 +137,21 @@ def read_wrdata_file(
 
 
 from torch.utils.tensorboard import SummaryWriter
+from math import ceil, log10
+from stable_baselines3.common.callbacks import BaseCallback
+
 class TensorboardCallback(BaseCallback):
     r"""
-    Callback for logging reward, obs and action to Tensorboard.
+    Callback for logging reward, obs, action, and parameters to Tensorboard.
 
-    If multiple environments are used, the reward, obs and action are logged
+    If multiple environments are used, the reward, obs, action, and parameters are logged
     for each environment separately. The keys will be "reward/<env index>",
-    "obs/<env index>/<key>", and "actions/<env index>/<key>" respectively.
+    "obs/<env index>/<key>", "actions/<env index>/<key>", and "parameters/<env index>/<key>" respectively.
 
-    Reward information comes from the locals. The obs and action information
-    comes from the infos dictionary. They must be "obs" and "action" keys in
-    the environment infos dictionary. All the sub-keys of the "obs" and
-    "action" must be dictionary associating `key` to value.
+    Reward information comes from the locals. The obs, action, and parameters information
+    comes from the infos dictionary. They must be "obs", "action", and "parameters" keys in
+    the environment infos dictionary. All the sub-keys of the "obs", "action", and
+    "parameters" must be dictionary associating `key` to value.
     """
 
     def __init__(self):
@@ -151,38 +160,55 @@ class TensorboardCallback(BaseCallback):
     def _on_step(self) -> bool:
         rewards = self.locals["rewards"]
         infos = self.locals["infos"]
-        print(f"Rewards: {rewards}")  # Debugging
-        print(f"Infos: {infos}")  # Debugging
 
         if len(rewards) == 1:  # Single environment
-            print(f"Logging single environment rewards: {rewards[0]}")
             self.logger.record("reward", rewards[0])
+
+            #print(infos[0])
 
             if "obs" in infos[0]:
                 for key, value in infos[0]["obs"].items():
-                    print(f"Logging obs/{key}: {value}")  # Debugging
                     self.logger.record(f"obs/{key}", value)
 
             if "action" in infos[0]:
                 for key, value in infos[0]["action"].items():
-                    print(f"Logging actions/{key}: {value}")  # Debugging
                     self.logger.record(f"actions/{key}", value)
+
+            if "W" in infos[0]:
+                for key, value in infos[0]["W"].items():
+                    self.logger.record(f"parameters/W/{key}", value)
+
+            if "L" in infos[0]:
+                for key, value in infos[0]["L"].items():
+                    self.logger.record(f"parameters/L/{key}", value)
+
+            if "Surface" in infos[0]:
+                self.logger.record(f"parameters/Surface", infos[0]["Surface"])
+
         else:  # Multiple environments
             digits = ceil(log10(len(rewards) + 1))
             for i, _ in enumerate(rewards):
                 i_str = '{num:0{width}d}'.format(num=i, width=digits)
-                print(f"Logging multiple environments: reward/{i_str}: {rewards[i]}")  # Debugging
                 self.logger.record(f"reward/{i_str}", rewards[i])
 
                 if "obs" in infos[i]:
                     for key, value in infos[i]["obs"].items():
-                        print(f"Logging obs/{i_str}/{key}: {value}")  # Debugging
                         self.logger.record(f"obs/{i_str}/{key}", value)
 
                 if "action" in infos[i]:
                     for key, value in infos[i]["action"].items():
-                        print(f"Logging actions/{i_str}/{key}: {value}")  # Debugging
                         self.logger.record(f"actions/{i_str}/{key}", value)
+
+                if "W" in infos[i]:
+                    for key, value in infos[i]["W"].items():
+                        self.logger.record(f"parameters/{i_str}/W/{key}", value)
+
+                if "L" in infos[i]:
+                    for key, value in infos[i]["L"].items():
+                        self.logger.record(f"parameters/{i_str}/L/{key}", value)
+
+                if "Surface" in infos[i]:
+                    self.logger.record(f"parameters/{i_str}/Surface", infos[i]["Surface"])
 
         return True
 
@@ -238,6 +264,10 @@ class NGSpiceEnvironment(gym.Env, abc.ABC):
 
                 if not include_file.is_absolute():
                     shutil.copy2(self._netlist_src.parent / include_file, self._tmpdir / "netlists" / include_file.name)
+
+                    # Update the .include line to point to the new location
+                    new_include_path = (self._tmpdir / "netlists" / include_file.name).as_posix()
+                    self._netlist_content = self._netlist_content.replace(line.strip(), f".include \"{include_file.name}\"")
 
         self._netlist = self._tmpdir / "netlists" / self._netlist_src.name
 
