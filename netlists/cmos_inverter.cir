@@ -1,0 +1,50 @@
+* CMOS Inverter SPICE Simulation
+* File: inverter_cmos.cir
+.INCLUDE "AMS035.txt"
+*.INCLUDE "45nm_bulk.txt"
+
+* CMOS Inverter with Parameters
+
+* Paramètres
+.param VDD=3.3
+.param W_N=5u
+.param L_N=0.35u
+.param W_P=5u
+.param L_P=0.35u
+.temp 25
+
+* Alimentation Vad vdd gnd VDD
+Vdd vdd gnd VDD
+
+* Tension d'entrée
+Vin in gnd pwl(
++ 0ns 0V
++ 0.5ns 0V
++ 0.7ns VDD
++ 2.8ns VDD
++ 3ns 0V
++ 3.5ns 0V
+)
+
+* Capacité de charge
+CL out gnd 1fF
+
+* Transistors
+MP1 vdd in out vdd PM W=W_P L=L_P
+MN2 gnd in out gnd NM W=W_N L=L_N
+
+*Simulation
+.tran 0.01ns 5ns
+.meas tran tdr TRIG v(in) VAL='VDD/2' RISE=1 TARG v(out) VAL='VDD/2' RISE=1
+.meas tran tdf TRIG v(in) VAL='VDD/2' FALL=1 TARG v(out) VAL='VDD/2' FALL=1
+
+
+* Résultat
+.control
+run
+plot V(in) V(out)
+set wr_singlescale
+set wr_vecnames
+wrdata output.txt V(in) V(out) I(vdd)
+.endc
+.end
