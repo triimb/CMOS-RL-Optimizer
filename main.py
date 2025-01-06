@@ -23,7 +23,7 @@ def train_model():
 
     # Train the model
     model = A2C('MlpPolicy', env, verbose=1, tensorboard_log="tensorboard_logs/")
-    model.learn(total_timesteps=3_000, callback=TensorboardCallback()) #SB3 is printing table every 500 steps
+    model.learn(total_timesteps=20_000, callback=TensorboardCallback()) #SB3 is printing table every 500 steps
 
     # Save the trained model
     model.save("a2c_cmos_inverter")
@@ -39,4 +39,4 @@ def run_simulation():
 
 if __name__ == "__main__":
     train_model()
-    run_simulation()
+    #run_simulation()

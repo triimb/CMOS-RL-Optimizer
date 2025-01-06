@@ -7,9 +7,9 @@
 
 * Paramètres
 .param VDD=3.3
-.param W_N=3.14u
+.param W_N=50u
 .param L_N=0.35u
-.param W_P=3u
+.param W_P=50u
 .param L_P=0.35u
 .temp 25
 

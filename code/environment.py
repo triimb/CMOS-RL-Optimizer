@@ -289,9 +289,9 @@ class CmosInverterEnvironment(NGSpiceEnvironment):
         power = max(power, 1e-10)  # Avoid negative or zero power
 
         # Normalization bounds (adjust if necessary)
-        power_min, power_max = 1e-10, 1e-5  
+        power_min, power_max = 1e-10, 5e-5  
         delay_min, delay_max = 1e-12, 1e-9  
-        surface_min, surface_max = 1e-12, 1e-9
+        surface_min, surface_max = 1e-15, 5e-9
 
         # Normalize the observation values
         power_norm = np.log10(power) / np.log10(power_max)  
@@ -299,11 +299,19 @@ class CmosInverterEnvironment(NGSpiceEnvironment):
         surface_norm = np.log10(surface) / np.log10(surface_max)
 
         # Hyperparameters to weight different components of the reward
-        alpha = 0.9
-        beta = 2.5
-        gamma = 1.3
+        alpha = 0.3
+        beta = 0.4
+        gamma = 0.3
 
         reward = -(alpha * power_norm + gamma * surface_norm) + beta / (delay_norm + 1e-6)
+
+        if power > power_max * 1.5:
+            reward -= 0.2  # penalty if power consumption ++
+        if delay > delay_max * 1.5:
+            reward -= 0.2  # penalty if delay ++
+        if surface > surface_max * 1.5:
+            reward -= 0.2  # penalty if surface area ++
+
         
         return reward
         
